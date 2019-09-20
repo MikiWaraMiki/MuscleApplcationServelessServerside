@@ -1,0 +1,14 @@
+
+# Env Direcoty
+/env/
+/cloudfomation/
+/template/
+/script/
+/layer/*
+!/layer/python
+/layer/python/*
+!/layer/python/cognito_layer.py
+!/layer/python/dynamodb_layer.py
+!/layer/python/dynamodb_layer.py
+!/layer/python/logger_layer.py
+/.cache/
