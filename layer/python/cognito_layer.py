@@ -47,10 +47,10 @@ class CognitoObject():
             )
             logger.debug("claims: {}".format(claims))
             return claims
-        except Exception as e:
+        except req.exceptions.HTTPError as e:
+            logger.warn(e)
             logger.warn("Failed requesting public cert")
-            logger.warn(e)
         except Exception as e:
-            logger.warn("Failed decoding token.")
             logger.warn(e)
+            logger.warn("Failed decoding token.")
             raise

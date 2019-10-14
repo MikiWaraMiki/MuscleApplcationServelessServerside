@@ -10,18 +10,28 @@ from boto3.dynamodb.conditions import Key, Attr
 
 # 自作モジュール
 from logger_layer import ApplicationLogger
-from dynamodb_layer import Todo
+from dynamodb_layer import Todo, FollowRelation
 from cognito_layer import CognitoObject
 from pandas_layer import TodoPandasObject
 logger = ApplicationLogger(name=__name__, env_info="dev") if os.getenv("AWS_SAM_LOCAL") else ApplicationLogger(name=__name__)
 
 
-def decimal_default_proc(obj):
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
 
 def get_user_name_from_id_token(id_token):
+    """
+    Cognito ID Tokenからユーザ名を取得するメソッド
+
+    Paramters
+    ----------
+    id_token : string
+        Cognito ID Token
+    
+    Returns
+    ---------
+    user_info["congnito:username"] : string
+        ID Tokenから取得したユーザ名
+
+    """
     logger.debug("id_token: {}".format(id_token))
     user_info = CognitoObject.get_user_info_from_id_token(id_token)
     logger.debug("Complete Decoding id Token")
@@ -31,9 +41,29 @@ def get_user_name_from_id_token(id_token):
     else:
         return ""
 
+def response_403():
+    """
+    403コードのレスポンスパラメータ
+
+    Returns
+    -------
+    unauthorized_response : dicstionary
+        レスポンスパラメータ
+    """
+    unauthorized_response = {
+                    'statusCode': 403,
+                    'headers': {
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Credentials": True,
+                        "Access-Control-Allow-Headers": "*"
+                    },
+                    'body': json.dumps({
+                        "message": 'Access is Denied',
+                    })
+                }
+    return unauthorized_response
 def lambda_handler(event, context):
     logger.debug(event)
-    post_parameters = json.loads(event["body"])
     # todo name
     try:
         token = event["headers"]["Authorization"]
@@ -41,58 +71,25 @@ def lambda_handler(event, context):
         user_name = get_user_name_from_id_token(token)
         if  user_name == "":
             logger.warn("User is invalid. Return 403 Code")
-            return {
-                'statusCode': 403,
-                'headers': {
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Credentials": True,
-                    "Access-Control-Allow-Headers": "*"
-                },
-                'body': json.dumps({
-                    "message": 'Access is Denied',
-                })
-            }
-        # トレーニング名を取得
-        if "name" not in post_parameters:
-            return {
-                'statusCode': 422,
-                'headers': {
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Credentials": True,
-                    "Access-Control-Allow-Headers": "*"
-                },
-                'body': json.dumps({
-                    "message": 'parameter is invalid.',
-                })
-            }
-        # メニュー名
-        menu_name = post_parameters["name"]
+            return response_403()
         # リソース取得
         if os.getenv("AWS_SAM_LOCAL"):
             logger.debug("Development environment.")
         else:
             logger.debug("Production envrionment.")
         todo_db = Todo()
+        follow_relation_db = FollowRelation()
         ## 解析データの取得
-        logger.debug("Gathering data from DB")
-        menu_dynamo_datas = todo_db.get_muscle_menu_data(user_name, menu_name)
-        logger.debug("Gathered data. {}".format(menu_dynamo_datas))
-        ## PandasObejct
-        pd_object = TodoPandasObject(menu_dynamo_datas)
-        #日付をフォーマット
-        pd_object.df["clear_plan"] = pd_object.translate_to_datetime_from_decimal("clear_plan")
-        pd_object.df["clear_date"] = pd_object.translate_to_datetime_from_decimal("clear_date")
+        logger.debug("Getting timelines")
+        #　タイムラインの取得
+        timeline_datas  = todo_db.get_clear_todos_within_a_month(ago_days=-14)
+        # フォローしているユーザを取得
+        following_datas = follow_relation_db.get_following_users_queried_by_user_name(user_name= user_name)
+        # Pandas生成
+        pd_object     = TodoPandasObject(timeline_datas)
+        timeline_datas = pd_object.create_timeline_data(following_datas)
+        logger.debug(type(timeline_datas))
         # Trend Dataを取得
-        logger.debug("Getting trend data for weight")
-        weight_trend_data          = pd_object.get_trend_data("weight")
-        logger.debug("Completeing trend data for weight")
-        logger.debug("Getting trend data for set")
-        set_trend_data             = pd_object.get_trend_data("set")
-        logger.debug("Completing trend data for set")
-        return_data = {
-            'weight': weight_trend_data,
-            'set'   : set_trend_data
-        }
         #結果をリターン
         return {
             'statusCode': 200,
@@ -102,8 +99,8 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Headers": "*"
             },
             'body': json.dumps({
-                'item': return_data
-            }, default=decimal_default_proc)
+                'item': timeline_datas
+            })
         }
     except ClientError as e:
         logger.warn("Failed. ClientError is occured.")

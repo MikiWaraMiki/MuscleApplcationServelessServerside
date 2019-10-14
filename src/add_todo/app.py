@@ -92,10 +92,9 @@ def lambda_handler(event, context):
         # リソース取得
         if os.getenv("AWS_SAM_LOCAL"):
             logger.debug("Development environment.")
-            todo_db = Todo("dev")
         else:
             logger.debug("Production envrionment.")
-            todo_db = Todo()
+        todo_db = Todo()
         ## 登録データの作成
         todo = {
             "user_name": post_parameter["user_name"],
@@ -105,9 +104,7 @@ def lambda_handler(event, context):
             "clear_plan": post_parameter["clear_plan"],
             "is_cleared": False
         }
-        put_result = todo_db.put_todo(todo)
-        todo["clear_plan"] = convert_datetime_from_decimal(todo["clear_plan"])
-        todo["created_at"] = convert_datetime_from_decimal(todo["created_at"])
+        register_todo = todo_db.put_todo(todo)
         #結果をリターン
         return {
             'statusCode': 200,
@@ -117,8 +114,8 @@ def lambda_handler(event, context):
                 "Access-Control-Allow-Headers": "*"
             },
             'body': json.dumps({
-                'item': todo
-            }, default=decimal_default_proc)
+                'item': register_todo
+            })
         }
     except ClientError as e:
         logger.debug(e)

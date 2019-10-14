@@ -21,10 +21,9 @@ def decimal_default_proc(obj):
         return float(obj)
     raise TypeError
 
-def convert_datetime_from_decimal(decimal_timestamp):
-    float_timestamp = float(decimal_timestamp)
-    dt              = datetime.fromtimestamp(float_timestamp)
-    return dt.strftime("%Y-%m-%d")
+def convert_datetime_from_iso_format_string(iso_string):
+    dt              = datetime.strptime(iso_string, '%Y-%m-%dT%H:%M:%S.%f')
+    return dt.strftime('%Y-%m-%d')
 
 def group_by_item(items, key_attribute):
     group_items_obj = {}
@@ -40,7 +39,7 @@ def group_by_item(items, key_attribute):
     return group_items_obj
 
 def create_chart_data(clear_todos):
-    chart_data= [{"name":todo["name"],"clear_date":convert_datetime_from_decimal(todo["clear_date"])} for todo in clear_todos]
+    chart_data= [{"name":todo["name"],"clear_date": convert_datetime_from_iso_format_string(todo['clear_date'])} for todo in clear_todos]
     pie_chart_data  = group_by_item(chart_data, "name")
     line_chart_data = group_by_item(chart_data, "clear_date")
     return {
@@ -62,10 +61,9 @@ def lambda_handler(event, context):
         # リソース取得
         if os.getenv("AWS_SAM_LOCAL"):
             logger.debug("Development environment.")
-            todo_db = Todo("dev")
         else:
             logger.debug("Production envrionment.")
-            todo_db = Todo("prod")
+        todo_db = Todo()
         # response用
         non_clear_todos = []
         clear_todos     = []
@@ -76,13 +74,16 @@ def lambda_handler(event, context):
         # Item取得
         logger.info("Searching User Todos")
         db_response = todo_db.get_all_todos(user_name=user_name)
-        if len(db_response) > 0:
+        if db_response:
+            logger.debug("Todo is registerd. Total Count: {}".format(len(db_response)))
             for item in db_response:
-                item["clear_plan"] = convert_datetime_from_decimal(item["clear_plan"])
-                item["created_at"] = convert_datetime_from_decimal(item["created_at"])
-                if item["is_cleared"]:
+                item["clear_plan"] = convert_datetime_from_iso_format_string(item["clear_plan"])
+                item["created_at"] = convert_datetime_from_iso_format_string(item["created_at"])
+                if item['clear_date'] is not '0':
+                    logger.debug("This todo is cleared")
                     clear_todos.append(item)
                 else:
+                    logger.debug("This todo is not cleared.")
                     non_clear_todos.append(item)
         logger.debug("Finished searcing user todos.\n clear_todos num: {}\n non_clear_todos num: {}".format(len(clear_todos),len(non_clear_todos)))
         
